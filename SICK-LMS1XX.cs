@@ -76,11 +76,24 @@ namespace BSICK.Sensors.LMS1xx
         //    this.encoding = new ASCIIEncoding();
         //}
 
+        /// <summary>
+        /// Emulate mode with data stream from dumpFile
+        /// </summary>
+        /// <param name="dumpFileName">Dump file name</param>
         public LMS1XX(string dumpFileName)
         {           
             var fileStream = new FileStream(dumpFileName, FileMode.Open, FileAccess.Read);
             reader = new BinaryReader(fileStream);
         }
+
+        /// <summary>
+        /// LMS client
+        /// </summary>
+        /// <param name="ipAdress">Sensor address</param>
+        /// <param name="port">Sensor port (factory defaults 2111 or 2112)</param>
+        /// <param name="receiveTimeout">Socket receive timeout in milliseconds</param>
+        /// <param name="sendTimeout">Socket send timeout in milliseconds</param>
+        /// <param name="dumpFileName">Filename for record data stream from sensor (for next emulation) or NULL</param>
         public LMS1XX(string ipAdress, int port, int receiveTimeout, int sendTimeout, string dumpFileName = null)
         {
             this.clientSocket = new TcpClient() { ReceiveTimeout = receiveTimeout, SendTimeout = sendTimeout } ;
