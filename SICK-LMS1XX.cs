@@ -28,14 +28,14 @@
  */
 
 using System;
-using System.Collections.Generic;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace BSICK.Sensors.LMS1xx
 {
-    public class LMS1XX
+    public class LMS1XX :IDisposable
     {
         #region Enumérations
 
@@ -56,24 +56,41 @@ namespace BSICK.Sensors.LMS1xx
         #region Propriétés privées
 
         private TcpClient clientSocket;
+        private readonly Encoding encoding = new ASCIIEncoding();
+        private readonly BinaryWriter writter = null;
+        private readonly BinaryReader reader = null;
+
+        private bool needDump { get => writter != null; }
+        public bool needEmu { get => reader != null; }
 
         #endregion
 
         #region Constructeurs
 
-        public LMS1XX()
-        {
+        //public LMS1XX()
+        //{
 
-            this.clientSocket = new TcpClient() { ReceiveTimeout = 1000, SendTimeout = 1000 };
-            this.IpAddress    = String.Empty;
-            this.Port         = 0;
+        //    this.clientSocket = new TcpClient() { ReceiveTimeout = 1000, SendTimeout = 1000 };
+        //    this.IpAddress    = String.Empty;
+        //    this.Port         = 0;
+        //    this.encoding = new ASCIIEncoding();
+        //}
+
+        public LMS1XX(string dumpFileName)
+        {           
+            var fileStream = new FileStream(dumpFileName, FileMode.Open, FileAccess.Read);
+            reader = new BinaryReader(fileStream);
         }
-
-        public LMS1XX(string ipAdress, int port, int receiveTimeout, int sendTimeout)
+        public LMS1XX(string ipAdress, int port, int receiveTimeout, int sendTimeout, string dumpFileName = null)
         {
             this.clientSocket = new TcpClient() { ReceiveTimeout = receiveTimeout, SendTimeout = sendTimeout } ;
             this.IpAddress    = ipAdress;
             this.Port         = port;
+            if (dumpFileName != null)
+            {
+                var fileStream = new FileStream(dumpFileName, FileMode.Create, FileAccess.Write);
+                writter = new BinaryWriter(fileStream);
+            }
         }
 
         #endregion
@@ -87,6 +104,9 @@ namespace BSICK.Sensors.LMS1xx
 
         public SocketConnectionResult Connect()
         {
+            if (needEmu)
+                return SocketConnectionResult.CONNECTED;
+
             SocketConnectionResult status = (clientSocket.Connected) ? SocketConnectionResult.CONNECTED : SocketConnectionResult.DISCONNECTED;
             if (status == SocketConnectionResult.DISCONNECTED)
             {
@@ -103,6 +123,9 @@ namespace BSICK.Sensors.LMS1xx
 
         public async Task<SocketConnectionResult> ConnectAsync()
         {
+            if (needEmu)
+                return SocketConnectionResult.CONNECTED;
+
             SocketConnectionResult status = (clientSocket.Connected) ? SocketConnectionResult.CONNECTED : SocketConnectionResult.DISCONNECTED;
             if (status == SocketConnectionResult.DISCONNECTED)
             {
@@ -119,6 +142,9 @@ namespace BSICK.Sensors.LMS1xx
 
         public SocketConnectionResult Disconnect()
         {
+            if (needEmu)
+                return SocketConnectionResult.DISCONNECTED;
+
             SocketConnectionResult status = (clientSocket.Connected) ? SocketConnectionResult.CONNECTED : SocketConnectionResult.DISCONNECTED;
             if (status == SocketConnectionResult.CONNECTED)
             {
@@ -134,9 +160,11 @@ namespace BSICK.Sensors.LMS1xx
             return status;
         }
 
-        public NetworkStreamResult Start()
+        private NetworkStreamResult SendCmd(byte[] cmd)
         {
-            byte[] cmd = new byte[18] { 0x02, 0x73, 0x4D, 0x4E, 0x20, 0x4C, 0x4D, 0x43, 0x73, 0x74, 0x61, 0x72, 0x74, 0x6D, 0x65, 0x61, 0x73, 0x03 };
+
+            if (needEmu)
+                return NetworkStreamResult.STARTED;
 
             NetworkStreamResult status;
             if (clientSocket.Connected)
@@ -148,7 +176,7 @@ namespace BSICK.Sensors.LMS1xx
                     status = NetworkStreamResult.STARTED;
                 }
                 catch (TimeoutException) { status = NetworkStreamResult.TIMEOUT; this.Disconnect(); return status; }
-                catch (SystemException ) { status = NetworkStreamResult.ERROR;   this.Disconnect(); return status; }
+                catch (SystemException) { status = NetworkStreamResult.ERROR; this.Disconnect(); return status; }
             }
             else
             {
@@ -157,10 +185,38 @@ namespace BSICK.Sensors.LMS1xx
 
             return status;
         }
+
+        public string Start()
+        {
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.Start));
+        }
+
+        public string StartContinuous()
+        {
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.StartContinuous));
+        }
+
+        public string Run()
+        {
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.Run));
+        }
+
+        public string QueryStatus()
+        {
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.QueryStatus));
+            //var responce =  ParseScanData(bytes);
+            //return "qwe";
+        }
+        public string Reboot()
+        {
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.Reboot));
+            
+        }
+
 
         public async Task<NetworkStreamResult> StartAsync()
         {
-            byte[] cmd = new byte[18] { 0x02, 0x73, 0x4D, 0x4E, 0x20, 0x4C, 0x4D, 0x43, 0x73, 0x74, 0x61, 0x72, 0x74, 0x6D, 0x65, 0x61, 0x73, 0x03 };
+            //byte[] cmd = new byte[18] { 0x02, 0x73, 0x4D, 0x4E, 0x20, 0x4C, 0x4D, 0x43, 0x73, 0x74, 0x61, 0x72, 0x74, 0x6D, 0x65, 0x61, 0x73, 0x03 };
 
             NetworkStreamResult status;
             if (clientSocket.Connected)
@@ -168,7 +224,7 @@ namespace BSICK.Sensors.LMS1xx
                 try
                 {
                     NetworkStream serverStream = clientSocket.GetStream();
-                    await serverStream.WriteAsync(cmd, 0, cmd.Length);
+                    await serverStream.WriteAsync(Cmd.Start, 0, Cmd.Start.Length);
                     status = NetworkStreamResult.STARTED;
                 }
                 catch (TimeoutException) { status = NetworkStreamResult.TIMEOUT; this.Disconnect(); return status; }
@@ -182,34 +238,20 @@ namespace BSICK.Sensors.LMS1xx
             return status;
         }
 
-        public NetworkStreamResult Stop()
+        public string Stop()
         {
-            byte[] cmd = new byte[17] { 0x02, 0x73, 0x4D, 0x4E, 0x20, 0x4C, 0x4D, 0x43, 0x73, 0x74, 0x6F, 0x70, 0x6D, 0x65, 0x61, 0x73, 0x03 };
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.Stop));
+        }
 
-            NetworkStreamResult status;
-            if (clientSocket.Connected)
-            {
-                try
-                {
-                    NetworkStream serverStream = clientSocket.GetStream();
+        public string StopContinuous()
+        {
 
-                    serverStream.Write(cmd, 0, cmd.Length);
-                    status = NetworkStreamResult.STOPPED;
-                }
-                catch (TimeoutException) { status = NetworkStreamResult.TIMEOUT; this.Disconnect(); return status; }
-                catch (SystemException)  { status = NetworkStreamResult.ERROR;   this.Disconnect(); return status; }
-            }
-            else
-            {
-                status = NetworkStreamResult.CLIENT_NOT_CONNECTED;
-            }
-            
-            return status;
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.StopContinuous));
         }
 
         public async Task<NetworkStreamResult> StopAsync()
         {
-            byte[] cmd = new byte[17] { 0x02, 0x73, 0x4D, 0x4E, 0x20, 0x4C, 0x4D, 0x43, 0x73, 0x74, 0x6F, 0x70, 0x6D, 0x65, 0x61, 0x73, 0x03 };
+            //byte[] cmd = new byte[17] { 0x02, 0x73, 0x4D, 0x4E, 0x20, 0x4C, 0x4D, 0x43, 0x73, 0x74, 0x6F, 0x70, 0x6D, 0x65, 0x61, 0x73, 0x03 };
 
             NetworkStreamResult status;
             if (clientSocket.Connected)
@@ -218,7 +260,7 @@ namespace BSICK.Sensors.LMS1xx
                 {
                     NetworkStream serverStream = clientSocket.GetStream();
 
-                    await serverStream.WriteAsync(cmd, 0, cmd.Length);
+                    await serverStream.WriteAsync(Cmd.Stop, 0, Cmd.Stop.Length);
                     status = NetworkStreamResult.STOPPED;
                 }
                 catch (TimeoutException) { status = NetworkStreamResult.TIMEOUT; this.Disconnect(); return status; }
@@ -232,23 +274,46 @@ namespace BSICK.Sensors.LMS1xx
             return status;
         }
 
-        public byte[] ExecuteRaw(byte[] streamCommand)
+        public void Flush()
         {
+            clientSocket.GetStream().Flush();
+        }
+
+        public byte[] ExecuteRaw(string command)
+        {
+            return ExecuteRaw(command.GetCmdBytes());
+        }
+        public byte[] ExecuteRaw(byte[] command)
+        {
+            if (needEmu)
+            {
+                var size = reader.ReadInt32();
+                var data = reader.ReadBytes(size);
+                return data;
+            }
+
             try
             {
                 NetworkStream serverStream = clientSocket.GetStream();
-                serverStream.Write(streamCommand, 0, streamCommand.Length);
+
+                serverStream.Write(command, 0, command.Length);
                 serverStream.Flush();
 
                 byte[] inStream = new byte[clientSocket.ReceiveBufferSize];
-                serverStream.Read(inStream, 0, (int)clientSocket.ReceiveBufferSize);
+                var count = serverStream.Read(inStream, 0, (int)clientSocket.ReceiveBufferSize);
 
-                return inStream;
+                var scan = inStream.AsSpan().Slice(0, count).ToArray();
+                if (needDump)
+                {
+                    writter.Write(scan.Length);
+                    writter.Write(scan);
+                }
+                return scan;
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 return null;
-            } 
+            }
         }
 
         public async Task<byte[]> ExecuteRawAsync(byte[] streamCommand)
@@ -275,182 +340,284 @@ namespace BSICK.Sensors.LMS1xx
             public byte[] RawData;
         }
 
-        public SetAccessModeResult SetAccessMode()
+        public string SetAccessMode()
         {
-            SetAccessModeResult result;
-            byte[] command = new byte[] { 0x02, 0x73, 0x41, 0x4E, 0x20, 0x53, 0x65, 0x74, 0x41, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4D, 0x6F, 0x64, 0x65, 0x20, 0x31, 0x03 };
-            result.RawData = this.ExecuteRaw(command);
-            return result;
+            
+            //byte[] command = new byte[] { 0x02, 0x73, 0x41, 0x4E, 0x20, 0x53, 0x65, 0x74, 0x41, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4D, 0x6F, 0x64, 0x65, 0x20, 0x31, 0x03 };
+            return Encoding.ASCII.GetString(ExecuteRaw(Cmd.SetAccessMode));
+            //return result;
         }
 
         public async Task<SetAccessModeResult> SetAccessModeAsync()
         {
             SetAccessModeResult result;
-            byte[] command = new byte[] { 0x02, 0x73, 0x41, 0x4E, 0x20, 0x53, 0x65, 0x74, 0x41, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4D, 0x6F, 0x64, 0x65, 0x20, 0x31, 0x03 };
-            result.RawData = await this.ExecuteRawAsync(command);
+            //byte[] command = new byte[] { 0x02, 0x73, 0x41, 0x4E, 0x20, 0x53, 0x65, 0x74, 0x41, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4D, 0x6F, 0x64, 0x65, 0x20, 0x31, 0x03 };
+            result.RawData = await this.ExecuteRawAsync(Cmd.SetAccessMode);
             return result;
         }
 
-        public struct LMDScandataResult
-        {
-            public bool         IsError;
-            public Exception    ErrorException;
-            public byte[]       RawData;
-            public String       RawDataString;
-            public String       CommandType;
-            public String       Command;
-            public int?         VersionNumber;
-            public int?         DeviceNumber;
-            public int?         SerialNumber;
-            public String       DeviceStatus;
-            public int?         TelegramCounter;
-            public int?         ScanCounter;
-            public uint?        TimeSinceStartup;
-            public uint?        TimeOfTransmission;
-            public String       StatusOfDigitalInputs;
-            public String       StatusOfDigitalOutputs;
-            public int?         Reserved;
-            public double?      ScanFrequency;
-            public double?      MeasurementFrequency;
-            public int?         AmountOfEncoder;
-            public int?         EncoderPosition;
-            public int?         EncoderSpeed;
-            public int?         AmountOf16BitChannels;
-            public String       Content;
-            public String       ScaleFactor;
-            public String       ScaleFactorOffset;
-            public double?      StartAngle;
-            public double?      SizeOfSingleAngularStep;
-            public int?         AmountOfData;
-            public List<double> DistancesData;
 
-            public LMDScandataResult(byte [] rawData)
+
+
+        
+
+        public LMDScandataResult ParseScanData(byte[] rawData)
+        {
+            if (rawData != null)
             {
-                IsError                 = true;
-                ErrorException          = null;
-                RawData                 = rawData;
-                RawDataString           = Encoding.ASCII.GetString(rawData);
-                DistancesData           = new List<double>();
-                CommandType             = String.Empty;
-                Command                 = String.Empty;
-                VersionNumber           = null;
-                DeviceNumber            = null;
-                SerialNumber            = null;
-                DeviceStatus            = String.Empty;
-                TelegramCounter         = null;
-                ScanCounter             = null;
-                TimeSinceStartup        = null;
-                TimeOfTransmission      = null;
-                StatusOfDigitalInputs   = String.Empty;
-                StatusOfDigitalOutputs  = String.Empty;
-                Reserved                = null;
-                ScanFrequency           = null;
-                MeasurementFrequency    = null;
-                AmountOfEncoder         = null;
-                EncoderPosition         = null;
-                EncoderSpeed            = null;
-                AmountOf16BitChannels   = null;
-                Content                 = String.Empty;
-                ScaleFactor             = String.Empty;
-                ScaleFactorOffset       = String.Empty;
-                StartAngle              = null;
-                SizeOfSingleAngularStep = null;
-                AmountOfData            = null;
+                LMDScandataResult result = new LMDScandataResult(rawData);
+                result.IsError = false;
+                result.ErrorException = null;
+
+                int dataIndex = 0;
+                int dataBlocCounter = 0;
+                string dataBloc = String.Empty;
+                int dataStart = 1;
+                var dataBlocks = result.RawDataString.Split(' ', 28);
+
+
+                while (dataBlocCounter < 28)
+                {
+                    dataIndex++;
+                    if ((dataIndex < result.RawDataString.Length) && !(result.RawDataString[dataIndex] == ' '))
+                    {
+                        // += result.RawDataString[dataIndex];
+                        continue;
+                    }
+                    else
+                    {
+                        dataBloc = result.RawDataString.Substring(dataStart, dataIndex - dataStart);
+                        dataStart = dataIndex+1;
+                        ++dataBlocCounter;
+                        switch (dataBlocCounter)
+                        {
+                            case 1: result.CommandType = dataBloc; break;
+                            case 2: result.Command = dataBloc; break;
+                            case 3: result.VersionNumber = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 4: result.DeviceNumber = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 5: result.SerialNumber = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 6: result.DeviceStatus = dataBloc; break;
+                            case 7: result.DeviceStatus += "-" + dataBloc; break;
+                            case 8: result.TelegramCounter = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 9: result.ScanCounter = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 10: result.TimeSinceStartup = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
+                            case 11: result.TimeOfTransmission = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
+                            case 12: result.StatusOfDigitalInputs = dataBloc; break;
+                            case 13: result.StatusOfDigitalInputs += "-" + dataBloc; break;
+                            case 14: result.StatusOfDigitalOutputs = dataBloc; break;
+                            case 15: result.StatusOfDigitalOutputs += "-" + dataBloc; break;
+                            case 16: result.Reserved = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 17: result.ScanFrequency = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 100.0; break;
+                            case 18: result.MeasurementFrequency = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10.0; break;
+                            case 19: result.AmountOfEncoder = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber);
+                                if (result.AmountOfEncoder <= 0)
+                                    dataBlocCounter += 2;
+                                else
+                                    dataBlocCounter += 0;
+                                break;
+                            case 20: result.EncoderPosition = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 21: result.EncoderSpeed = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 22: result.AmountOf16BitChannels = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 23: result.Content = dataBloc; break;
+                            case 24: result.ScaleFactor = dataBloc; break;
+                            case 25: result.ScaleFactorOffset = dataBloc; break;
+                            case 26: result.StartAngle = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000.0; break;
+                            case 27: result.SizeOfSingleAngularStep = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000.0; break;
+                            case 28: result.AmountOfData = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                        }
+                        dataBloc = String.Empty;
+                        if (result.CommandType != "sRA") return result;
+                    }
+                }
+
+                dataBloc = String.Empty;
+                while (dataBlocCounter < result.AmountOfData + 28)
+                {
+                    ++dataIndex;
+                    if (!(result.RawDataString[dataIndex] == ' '))
+                    {
+                        dataBloc += result.RawDataString[dataIndex];
+                    }
+                    else
+                    {
+                        result.DistancesData.Add(Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 1000);
+                        dataBloc = String.Empty;
+                        ++dataBlocCounter;
+                    }
+                }
+
+                return result;
             }
+            else
+                return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Raw data is null.") };
         }
 
+        public LMDScandataResult ParseScanData2(byte[] rawData)
+        {
+            if (rawData != null)
+            {
+                LMDScandataResult result = new LMDScandataResult(rawData);
+                result.IsError = false;
+                result.ErrorException = null;
+
+                int dataIndex = 0;
+                int dataBlocCounter = 0;
+                string dataBloc = String.Empty;
+
+                var dataBlocks = result.RawDataString.Split(' ', 28);
+
+
+                while (dataBlocCounter < 28)
+                {
+                    dataIndex++;
+                    if ((dataIndex < result.RawDataString.Length) && !(result.RawDataString[dataIndex].ToString() == " "))
+                    {
+                        dataBloc += result.RawDataString[dataIndex];
+                    }
+                    else
+                    {
+                        ++dataBlocCounter;
+                        switch (dataBlocCounter)
+                        {
+                            case 1: result.CommandType = dataBloc; break;
+                            case 2: result.Command = dataBloc; break;
+                            case 3: result.VersionNumber = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 4: result.DeviceNumber = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 5: result.SerialNumber = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 6: result.DeviceStatus = dataBloc; break;
+                            case 7: result.DeviceStatus += "-" + dataBloc; break;
+                            case 8: result.TelegramCounter = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 9: result.ScanCounter = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 10: result.TimeSinceStartup = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
+                            case 11: result.TimeOfTransmission = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
+                            case 12: result.StatusOfDigitalInputs = dataBloc; break;
+                            case 13: result.StatusOfDigitalInputs += "-" + dataBloc; break;
+                            case 14: result.StatusOfDigitalOutputs = dataBloc; break;
+                            case 15: result.StatusOfDigitalOutputs += "-" + dataBloc; break;
+                            case 16: result.Reserved = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 17: result.ScanFrequency = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 100.0; break;
+                            case 18: result.MeasurementFrequency = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10.0; break;
+                            case 19:
+                                result.AmountOfEncoder = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber);
+                                if (result.AmountOfEncoder <= 0)
+                                    dataBlocCounter += 2;
+                                break;
+                            case 20: result.EncoderPosition = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 21: result.EncoderSpeed = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 22: result.AmountOf16BitChannels = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                            case 23: result.Content = dataBloc; break;
+                            case 24: result.ScaleFactor = dataBloc; break;
+                            case 25: result.ScaleFactorOffset = dataBloc; break;
+                            case 26: result.StartAngle = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000.0; break;
+                            case 27: result.SizeOfSingleAngularStep = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000.0; break;
+                            case 28: result.AmountOfData = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
+                        }
+                        dataBloc = String.Empty;
+                        if (result.CommandType != "sRA") return result;
+                    }
+                }
+
+                dataBloc = String.Empty;
+                while (dataBlocCounter < result.AmountOfData + 28)
+                {
+                    ++dataIndex;
+                    if (!(result.RawDataString[dataIndex].ToString() == " "))
+                    {
+                        dataBloc += result.RawDataString[dataIndex];
+                    }
+                    else
+                    {
+                        result.DistancesData.Add(Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 1000);
+                        dataBloc = String.Empty;
+                        ++dataBlocCounter;
+                    }
+                }
+
+                return result;
+            }
+            else
+                return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Raw data is null.") };
+        }
         public LMDScandataResult LMDScandata()
         {
-            byte[] command = new byte[] { 0x02, 0x73, 0x52, 0x4E, 0x20, 0x4C, 0x4D, 0x44, 0x73, 0x63, 0x61, 0x6E, 0x64, 0x61, 0x74, 0x61, 0x03 };
-
             if (clientSocket.Connected)
             {
-                byte[] rawData = null;
+                byte[] rawData;
                 try
                 {
-                    rawData = this.ExecuteRaw(command);
+                    rawData = this.ExecuteRaw(Cmd.ScanData);
+                    //File.WriteAllBytes($"scan_{clientSocket.Client.RemoteEndPoint.ToString().Replace(':','-')}_{DateTime.Now.Ticks}.bin", rawData);
                 }
                 catch(Exception ex)
                 {
                     return new LMDScandataResult() { IsError = true, ErrorException = ex };
                 }
+                return ParseScanData(rawData);
+            }
+            else
+                return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Client socket not connected.") };
+        }
 
-                if (rawData != null)
+        public LMDScandataResult LMDScandata2()
+        {
+            if (clientSocket.Connected)
+            {
+                LMDScandataResult data;
+                
+                try
                 {
-                    LMDScandataResult result = new LMDScandataResult(rawData);
-                    result.IsError           = false;
-                    result.ErrorException    = null;
 
-                    int dataIndex       = 0;
-                    int dataBlocCounter = 0;
-                    string dataBloc     = String.Empty;
-
-                    while (dataBlocCounter < 28)
-                    {
-                        dataIndex++;
-                        if ((dataIndex < result.RawDataString.Length) && !(result.RawDataString[dataIndex].ToString() == " "))
-                        {
-                            dataBloc += result.RawDataString[dataIndex];
-                        }
-                        else
-                        {
-                            ++dataBlocCounter;
-                            switch (dataBlocCounter)
-                            {
-                                case 1: result.CommandType              = dataBloc; break;
-                                case 2: result.Command                  = dataBloc; break;
-                                case 3: result.VersionNumber            = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 4: result.DeviceNumber             = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 5: result.SerialNumber             = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 6: result.DeviceStatus             = dataBloc; break;
-                                case 7: result.DeviceStatus            += "-" + dataBloc; break;
-                                case 8: result.TelegramCounter          = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 9: result.ScanCounter              = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 10: result.TimeSinceStartup        = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
-                                case 11: result.TimeOfTransmission      = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
-                                case 12: result.StatusOfDigitalInputs   = dataBloc; break;
-                                case 13: result.StatusOfDigitalInputs  += "-" + dataBloc; break;
-                                case 14: result.StatusOfDigitalOutputs  = dataBloc; break;
-                                case 15: result.StatusOfDigitalOutputs += "-" + dataBloc; break;
-                                case 16: result.Reserved                = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 17: result.ScanFrequency           = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 100; break;
-                                case 18: result.MeasurementFrequency    = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10; break;
-                                case 19: result.AmountOfEncoder         = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); if (result.AmountOfEncoder <= 0) dataBlocCounter += 2; break;
-                                case 20: result.EncoderPosition         = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 21: result.EncoderSpeed            = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 22: result.AmountOf16BitChannels   = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 23: result.Content                 = dataBloc; break;
-                                case 24: result.ScaleFactor             = dataBloc; break;
-                                case 25: result.ScaleFactorOffset       = dataBloc; break;
-                                case 26: result.StartAngle              = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000; break;
-                                case 27: result.SizeOfSingleAngularStep = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000; break;
-                                case 28: result.AmountOfData            = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                            }
-                            dataBloc = String.Empty;
-                            if (result.CommandType != "sRA") return result;
-                        }
-                    }
-
-                    dataBloc = String.Empty;
-                    while (dataBlocCounter < result.AmountOfData + 28)
-                    {
-                        ++dataIndex;
-                        if (!(result.RawDataString[dataIndex].ToString() == " "))
-                        {
-                            dataBloc += result.RawDataString[dataIndex];
-                        }
-                        else
-                        {
-                            result.DistancesData.Add(Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 1000);
-                            dataBloc = String.Empty;
-                            ++dataBlocCounter;
-                        }
-                    }
-
-                    return result;
+                    var stream = clientSocket.GetStream();
+                    stream.Write(Cmd.ScanData, 0, Cmd.ScanData.Length);
+                    stream.Flush();
+                    data = LMDScandataResult.Parse(stream);
+                    
                 }
-                else
-                    return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Raw data is null.") };
+                catch (Exception ex)
+                {
+                    return new LMDScandataResult() { IsError = true, ErrorException = ex };
+                }
+                return data;
+            }
+            else
+                return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Client socket not connected.") };
+        }
+
+        public LMDScandataResult ScanContinious()
+        {
+            if (needEmu)
+            {
+                var size = reader.ReadInt32();
+                var bytes = reader.ReadBytes(size);
+                var data = LMDScandataResult.ParseContinious(bytes);
+                return data;
+            }
+
+            if (clientSocket.Connected)
+            {
+                LMDScandataResult data;
+                try
+                {                    
+                    if (needDump)
+                    {
+                        var mirror = new MemoryStream();
+                        var stream = new MirrorStream(clientSocket.GetStream(), mirror);
+                        data = LMDScandataResult.ParseContinious(stream);
+                        var mirrorBytes = mirror.ToArray();
+                        writter.Write(mirrorBytes.Length);
+                        writter.Write(mirrorBytes);
+                    }
+                    else 
+                    {
+                        var stream = (Stream)clientSocket.GetStream();
+                        data = LMDScandataResult.ParseContinious(stream);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return new LMDScandataResult() { IsError = true, ErrorException = ex };
+                }
+                return data;
             }
             else
                 return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Client socket not connected.") };
@@ -458,97 +625,21 @@ namespace BSICK.Sensors.LMS1xx
 
         public async Task<LMDScandataResult> LMDScandataAsync()
         {
-            byte[] command = new byte[] { 0x02, 0x73, 0x52, 0x4E, 0x20, 0x4C, 0x4D, 0x44, 0x73, 0x63, 0x61, 0x6E, 0x64, 0x61, 0x74, 0x61, 0x03 };
+            //byte[] command = new byte[] { 0x02, 0x73, 0x52, 0x4E, 0x20, 0x4C, 0x4D, 0x44, 0x73, 0x63, 0x61, 0x6E, 0x64, 0x61, 0x74, 0x61, 0x03 };
 
             if (clientSocket.Connected)
             {
                 byte[] rawData = null;
                 try
                 {
-                    rawData = await this.ExecuteRawAsync(command);
+                    rawData = await this.ExecuteRawAsync(Cmd.ScanData);
                 }
                 catch(Exception ex)
                 {
                     return new LMDScandataResult() { IsError = true, ErrorException = ex };
                 }
 
-                if (rawData != null)
-                {
-                    LMDScandataResult result = new LMDScandataResult(rawData);
-                    result.IsError           = false;
-                    result.ErrorException    = null;
-
-                    int dataIndex       = 0;
-                    int dataBlocCounter = 0;
-                    string dataBloc     = String.Empty;
-
-                    while (dataBlocCounter < 28)
-                    {
-                        dataIndex++;
-                        if ((dataIndex < result.RawDataString.Length) && !(result.RawDataString[dataIndex].ToString() == " "))
-                        {
-                            dataBloc += result.RawDataString[dataIndex];
-                        }
-                        else
-                        {
-                            ++dataBlocCounter;
-                            switch (dataBlocCounter)
-                            {
-                                case 1: result.CommandType              = dataBloc; break;
-                                case 2: result.Command                  = dataBloc; break;
-                                case 3: result.VersionNumber            = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 4: result.DeviceNumber             = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 5: result.SerialNumber             = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 6: result.DeviceStatus             = dataBloc; break;
-                                case 7: result.DeviceStatus            += "-" + dataBloc; break;
-                                case 8: result.TelegramCounter          = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 9: result.ScanCounter              = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 10: result.TimeSinceStartup        = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
-                                case 11: result.TimeOfTransmission      = uint.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber) / 1000000; break;
-                                case 12: result.StatusOfDigitalInputs   = dataBloc; break;
-                                case 13: result.StatusOfDigitalInputs  += "-" + dataBloc; break;
-                                case 14: result.StatusOfDigitalOutputs  = dataBloc; break;
-                                case 15: result.StatusOfDigitalOutputs += "-" + dataBloc; break;
-                                case 16: result.Reserved                = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 17: result.ScanFrequency           = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 100; break;
-                                case 18: result.MeasurementFrequency    = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10; break;
-                                case 19: result.AmountOfEncoder         = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); if (result.AmountOfEncoder <= 0) dataBlocCounter += 2; break;
-                                case 20: result.EncoderPosition         = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 21: result.EncoderSpeed            = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 22: result.AmountOf16BitChannels   = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                                case 23: result.Content                 = dataBloc; break;
-                                case 24: result.ScaleFactor             = dataBloc; break;
-                                case 25: result.ScaleFactorOffset       = dataBloc; break;
-                                case 26: result.StartAngle              = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000; break;
-                                case 27: result.SizeOfSingleAngularStep = Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 10000; break;
-                                case 28: result.AmountOfData            = int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber); break;
-                            }
-                            dataBloc = String.Empty;
-                            if (result.CommandType != "sRA")
-                                return result;
-                        }
-                    }
-
-                    dataBloc = String.Empty;
-                    while (dataBlocCounter < result.AmountOfData + 28)
-                    {
-                        ++dataIndex;
-                        if (!(result.RawDataString[dataIndex].ToString() == " "))
-                        {
-                            dataBloc += result.RawDataString[dataIndex];
-                        }
-                        else
-                        {
-                            result.DistancesData.Add(Convert.ToDouble(int.Parse(dataBloc, System.Globalization.NumberStyles.HexNumber)) / 1000);
-                            dataBloc = String.Empty;
-                            ++dataBlocCounter;
-                        }
-                    }
-
-                    return result;
-                }
-                else
-                    return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Raw data is null.") };
+                return ParseScanData(rawData);
             }
             else
                 return new LMDScandataResult() { IsError = true, ErrorException = new Exception("Client socket not connected.") };
@@ -616,6 +707,14 @@ namespace BSICK.Sensors.LMS1xx
             {
                 return new LMDScandataResult() { IsError = true, ErrorException = ex };
             }
+        }
+
+        public void Dispose()
+        {
+            if (writter != null)
+                writter.Dispose();
+            if (reader != null)
+                reader.Dispose();
         }
 
         #endregion
