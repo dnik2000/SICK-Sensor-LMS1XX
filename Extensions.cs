@@ -11,8 +11,11 @@ namespace BSICK.Sensors.LMS1xx
     {
         public static char ReadChar(this Stream stream)
         {
-            var c = (char)stream.ReadByte();
-            return c;
+            var c = stream.ReadByte();
+            if (c >= 0)
+                return (char)c;
+            else 
+            throw new EndOfStreamException();
         }
 
         public static string ReadStringUntil(this Stream stream, char splitter, int count = 1000)
@@ -23,6 +26,7 @@ namespace BSICK.Sensors.LMS1xx
                 var b = stream.ReadChar();
                 if (b == splitter)
                     break;
+
                 sb.Append(b);
             }
             return sb.ToString();

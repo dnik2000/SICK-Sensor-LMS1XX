@@ -80,16 +80,15 @@ namespace BSICK.Sensors.LMS1xx
             while (true)
             {
                 if (br.ReadChar() != StartMark)
-                    continue;
+                    return null;
                 if (br.ReadChar() != 's')
-                        continue;
+                    return null;
                 if (br.ReadChar() != 'R')
-                    continue;
+                    return null;
                 if (br.ReadChar() != 'A')
-                    continue;
+                    return null;
                 if (br.ReadChar() != ' ')
-                    continue;
-                break;
+                    return null;
 
             }
             //rawData.Write
