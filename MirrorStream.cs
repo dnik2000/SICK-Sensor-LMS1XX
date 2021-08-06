@@ -7,13 +7,22 @@ namespace BSICK.Sensors.LMS1xx
 {
     public class MirrorStream : Stream
     {
-        private Stream accumulator;
-        private Stream baseStream;
+        private bool isDisposed;
+        private readonly Stream mirrorStream;
+        private readonly Stream baseStream;
+        private readonly bool needDisposeMirrorStrem;
 
         public MirrorStream(Stream stream, Stream mirrorStream)
         {
             baseStream = stream;
-            accumulator = mirrorStream;
+            this.mirrorStream = mirrorStream;
+        }
+
+        public MirrorStream(Stream stream, string fileName)
+        {
+            baseStream = stream;
+            mirrorStream = new FileStream(fileName, FileMode.Create, FileAccess.Write);
+            needDisposeMirrorStrem = true;
         }
 
 
@@ -35,7 +44,7 @@ namespace BSICK.Sensors.LMS1xx
         public override int Read(byte[] buffer, int offset, int count)
         {
             var cnt = baseStream.Read(buffer, offset, count);
-            accumulator.Write(buffer, offset, cnt);
+            mirrorStream.Write(buffer, offset, cnt);
             return cnt;
         }
 
@@ -58,9 +67,23 @@ namespace BSICK.Sensors.LMS1xx
         {
             var b = baseStream.ReadByte();
             if (b >= 0)
-                accumulator.WriteByte((byte)b);
+                mirrorStream.WriteByte((byte)b);
             return b;
         }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (!disposing)
+                return;
+            if (isDisposed)
+                return;
+            isDisposed = true;
+            mirrorStream?.Flush();
+            if (needDisposeMirrorStrem)
+                mirrorStream.Dispose();
+        }
+
+
     }
 
 }
