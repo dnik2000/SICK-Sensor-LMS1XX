@@ -57,10 +57,10 @@ namespace BSICK.Sensors.LMS1xx
 
         private TcpClient clientSocket;
         private readonly Encoding encoding = new ASCIIEncoding();
-        private readonly BinaryWriter writter = null;
+        private readonly BinaryWriter writer = null;
         private readonly BinaryReader reader = null;
 
-        private bool needDump { get => writter != null; }
+        private bool needDump { get => writer != null; }
         public bool needEmu { get => reader != null; }
 
         #endregion
@@ -102,7 +102,7 @@ namespace BSICK.Sensors.LMS1xx
             if (dumpFileName != null)
             {
                 var fileStream = new FileStream(dumpFileName, FileMode.Create, FileAccess.Write);
-                writter = new BinaryWriter(fileStream);
+                writer = new BinaryWriter(fileStream);
             }
         }
 
@@ -318,8 +318,8 @@ namespace BSICK.Sensors.LMS1xx
                 var scan = inStream.AsSpan().Slice(0, count).ToArray();
                 if (needDump)
                 {
-                    writter.Write(scan.Length);
-                    writter.Write(scan);
+                    writer.Write(scan.Length);
+                    writer.Write(scan);
                 }
                 return scan;
             }
@@ -617,8 +617,8 @@ namespace BSICK.Sensors.LMS1xx
                         var stream = new MirrorStream(clientSocket.GetStream(), mirror);
                         data = LMDScandataResult.ParseContinious(stream);
                         var mirrorBytes = mirror.ToArray();
-                        writter.Write(mirrorBytes.Length);
-                        writter.Write(mirrorBytes);
+                        writer.Write(mirrorBytes.Length);
+                        writer.Write(mirrorBytes);
                     }
                     else 
                     {
@@ -724,12 +724,10 @@ namespace BSICK.Sensors.LMS1xx
 
         public void Dispose()
         {
-            if (writter != null)
-                writter.Dispose();
-            if (reader != null)
-                reader.Dispose();
+            writer?.Dispose();
+            reader?.Dispose();
+            clientSocket?.Dispose();
         }
-
         #endregion
     }
 }
